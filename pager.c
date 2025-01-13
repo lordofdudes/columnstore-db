@@ -1,17 +1,11 @@
 #include "pager.h"
 #include <stdio.h>
 #include <stdlib.h>
-
-/*void init_pages(void){
-    blocks = malloc(sizeof(block_t) * NUM_BLOCKS);
-    for(int i = 0; i < NUM_BLOCKS; i++){
-        blocks[i].page_ptr = malloc(sizeof(unsigned char) * BLOCK_SIZE); // * 4) * 6 + size * NUM_ATTR_VALUES);
-        fill_page(&blocks[i], i);
-    }
-}*/
+#include <string.h>
 
 void init_block(block_t *block){
     block->page_ptr = malloc(sizeof(unsigned char) * BLOCK_SIZE);
+    block->next = NULL;
 }
 
 void fill_page(block_t *block, int blockID){
@@ -22,13 +16,13 @@ void fill_page(block_t *block, int blockID){
     *vals = blockID;
 
     vals = GET_HEADER(block, CAPACITY);
-    *vals = MAX_ATTR_VALUES;
+    *vals = RECORD_AMOUNT;
 
     vals = GET_HEADER(block, AVAOFFSET);
     *vals = 0;
-
+    
     int i;
-    for(vals += 1, i = 0; i < MAX_ATTR_VALUES + 2; i++, vals += 1){  // ColumnID Recordcount freespace
+    for(vals += 1, i = 0; i < RECORD_AMOUNT + 2; i++, vals += 1){  // ColumnID Recordcount freespace
         *vals = 0;
     }
 }
@@ -37,7 +31,6 @@ void fill_page(block_t *block, int blockID){
 int get_column_id(int ColumnID, block_t *block){
     int *col_id_ptr = GET_HEADER(block, COLUMNID);
 
-    //printf("got column id %d, looking for %d\n", *col_id_ptr, ColumnID);
     if(*col_id_ptr == ColumnID){
         return 1;
     }
@@ -55,88 +48,84 @@ int get_page(block_t *block, int record_count){
 }
 
 
-void insert_val(block_t *block, int val, int ColumnID){
-    int *val_to_insert = GET_HEADER(block, HEADERSIZE); // HeaderSize
-    int base_address = val_to_insert; 
-    
-    val_to_insert = GET_HEADER(block, AVAOFFSET);             // AvaOffset
-    int offset = *val_to_insert;
-    *val_to_insert += 1;
+int insert_val(block_t *block, void *val, int ColumnID, int type, size_t size){
 
-    val_to_insert += offset + 3;   // FreeSpace
-    *val_to_insert = val;
-    int inserted_val = val;
+    int *val_to_insert = GET_HEADER(block, AVAOFFSET);             // AvaOffset
+    int offset = *val_to_insert;
+    if((offset + size) > (BLOCK_SIZE - (NUM_HEADERS * sizeof(int)))){
+        return -1;
+    }
+
+    *val_to_insert += size;
+    
+    val_to_insert = GET_HEADER(block, CAPACITY);
+    *val_to_insert = GET_MAXIMUM_ATTR_COUNT(size);
+
+    unsigned char *insert_ptr = (unsigned char *)GET_HEADER(block, FREESPACE + offset); // Align to free space
+
+
+    if (type == INT) {
+        *(int *)insert_ptr = *(int *)val;  // Insert int
+        //insert_ptr = *GET_HEADER(block, FREESPACE + offset);
+        //printf("\n\nInserted %d at %d with blockID %d, colID %d\n\n", (int)insert_ptr, FREESPACE + offset, *GET_HEADER(block, BLOCKID), ColumnID);
+
+    } else {
+        memcpy(insert_ptr, (char *)val, size);  // Insert string or other types
+        //insert_ptr = (char *)GET_HEADER(block, FREESPACE + offset);
+        //printf("\n\nInserted %s at %d with blockID %d, colID %d\n\n", (char *)insert_ptr, FREESPACE + offset, *GET_HEADER(block, BLOCKID), ColumnID);
+    }
 
   
     val_to_insert = GET_HEADER(block, COLUMNID);            // ColumnID 
     *val_to_insert = ColumnID;
 
-
     val_to_insert = GET_HEADER(block, RECORDCOUNT);            // RecordCount
     *val_to_insert += 1;
 
+
+    return 1;
     //printf("BlockID: %d, Inserted: %d offset: %d, Base Address: %x\n", *(int *)(block->page_ptr + 4),
     //inserted_val, offset, base_address);
 }
 
 
-void insert_col_val(struct schema *sch, int ColumnID, int val){
-    int j;
-    for(int i = 0; i < NUM_BLOCKS; i++){
-        // Check for block with corresponding columnID
+int insert_col_val(struct schema *sch, int ColumnID, void *val, int type, size_t size){
 
-        if(get_column_id(ColumnID, &sch->blocks[i])){
-            
-            // Find block with not-maxed row count
-            if(!get_page(&sch->blocks[i], MAX_ATTR_VALUES)){
-                insert_val(&sch->blocks[i], val, ColumnID);
-                return;
-            }
+    int status;
+    block_t *block;
+    for(block = sch->first_block; block; block = block->next){
+        // Check for block with corresponding columnID
+        if(get_column_id(ColumnID, block)){
+            // Find block with non-maxed row count
+                status = insert_val(block, val, ColumnID, type, size);
+                if(status == -1){
+                    printf("Unable to input attribute value into current block\n"); 
+                } else if(status == 1){
+                    return 1;
+                }               
         }   
     }
-
-
-    // if not, find first empty block and set columnID for empty block
-    for(j = 0; !get_column_id(0, &sch->blocks[j]); j++){
+    
+    for(block = sch->first_block; block; block = block->next){
+        if(get_column_id(0, block)){
+            insert_val(block, val, ColumnID, type, size);
+            return 1;
+        }
+    }
+    insert_block(sch);
+    for(block = sch->first_block; block->next; block = block->next){
         ;
     }
-    insert_val(&sch->blocks[j], val, ColumnID);
+    insert_val(block, val, ColumnID, type, size);
 
-
-
+    return -1;
 }
 
-void print_block(block_t *block){
-    int *header_ptr = GET_HEADER(block, HEADERSIZE);
-    printf("Header Amount: %d\n", *header_ptr);
+int compare_val(block_t *block, cmpfunc_t func, int val, int last_accessed_index){
+    int *block_val = GET_HEADER(block, (FREESPACE + (4 * last_accessed_index)));
 
-   header_ptr = GET_HEADER(block, BLOCKID);
-    printf("BlockID: %d\n", *header_ptr);
-    header_ptr = GET_HEADER(block, CAPACITY);
-    printf("Capacity: %d\n", *header_ptr);
-    header_ptr = GET_HEADER(block, AVAOFFSET);
-    printf("AvaOffset: %d\n", *header_ptr);
-    header_ptr = GET_HEADER(block, COLUMNID);
-    printf("ColumnID: %d\n", *header_ptr);
-    header_ptr = GET_HEADER(block, RECORDCOUNT);
-    printf("RecordCount: %d\n", *header_ptr);
-
-
-    header_ptr += 1;
-    for(int j = 0; j < MAX_ATTR_VALUES; j++, header_ptr += 1){
-        printf("At %d lies value: %d\n", j, *header_ptr);
-
-    }
-    printf("\n\n");
-}
-
-int compare_val(block_t *block, cmpfunc_t func, int val, int index){
-    int *header_ptr = GET_HEADER(block, FREESPACE + index * sizeof(int));
-    printf("cmpval %d    %d     %d\n", index, val, *header_ptr);
-
-    if(func(*header_ptr, val) == 1) return 1;
-
-    return 0;
+    int result = func(*block_val, val);
+    return result;
 
 }
 

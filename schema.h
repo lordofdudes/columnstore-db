@@ -16,8 +16,11 @@ typedef struct field_desc field_desc_t;
 struct schema;
 typedef struct schema schema_t;
 
+typedef enum { INT, STR } field_type;
+
 struct field_desc{
     char *name;
+    field_type type;
     int ColumnID;
     int size;
     struct field_desc *next;
@@ -37,7 +40,10 @@ struct schema{
     int field_amount;
     int last_accessed;
     int record_amount;
-    struct block *blocks;
+    int num_blocks;
+    int current_blockID;
+    struct block *first_block;
+
 };
 
 
@@ -45,7 +51,7 @@ struct schema{
 typedef void ** record;
 
 // Initializes a schema, allocating blocks and setting metadata
-schema_t *schema_init(char *name, int num_blocks);
+schema_t *schema_init(char *name);
 
 // Adds a field descriptor to schema, adding a new field to schema
 int add_field(schema_t *sch, field_desc_t *fd);
@@ -60,7 +66,17 @@ field_desc_t *dup_field(field_desc_t *f, size_t size);
 field_desc_t *get_field(schema_t *sch, const char *name);
 
 // Initializes new field descriptor with information like name, size, etc
-field_desc_t *fd_init(char *name, size_t size);
+field_desc_t *fd_int_init(char *name);
+field_desc_t *fd_str_init(char *name, int size);
 
+// Allocates and inserts new block
+void insert_block(schema_t *sch);
+
+// Inserts new block as next for src_block, linked list of blocks with same columnID
+// Returns -1 on error, 1 on successful insertion
+void allocate_block(schema_t *sch, int num_blocks);
+
+// Frees schema and any blocks contained
+void free_schema(schema_t *schema);
 
 #endif
