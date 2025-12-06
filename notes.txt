@@ -1,0 +1,98 @@
+File structure:
+
+    Header:
+        Magic Number
+
+    Body:
+        Row Groups:
+            - Column A:
+                - Data
+            - Column B:
+                - Data
+            ...
+        ...
+        
+    Footer:
+        - Schema info:
+            - Total amount of records (4)
+            - Max row group record amount (4)
+            - Field amount (4)
+            - Field metadata {name, age, ...}:
+                - Column size (4)
+                - Column name (20)
+                - Column type (4)
+                - Column number (4)
+
+        - Row group metadata {0, 1, 2, ...}:
+            - Column metadata {A, B, C, ...}:
+                - Column offset (4)               
+    Footer size (4)
+    Magic Number
+
+
+Header implementation:
+    
+
+Footer implementation:
+    Metadata insertion:
+            - Get number of fields (columns) and size of each field
+            - Insert
+
+
+            4-7 68 bytes 00000000 00000000 00000000 01000100
+            0-3 MAGIC SAM1
+
+Notes on implementation:
+    Figure out good amount of allowed record amount in each row group
+    Begin very first on the header magic number
+
+    4 initial columns, STR company (20 bytes), STR url (70 bytes), INT application state (4 bytes),
+    STR interview date (5 bytes)
+
+    Row group 0:
+        Column A company:
+            -  
+            - 0
+            occupying 320 bytes (16*20)
+        Column B url:
+            - 
+            - 0
+            occupying 1120 bytes (16*70)
+        Column C state:
+            - 
+            - 0
+            occupying 64 bytes (16*4)
+        Column D date:
+            - 
+            - 0
+            occupying 80 bytes (16*5)
+            
+        in total a row occupies 1584 bytes
+        
+
+Schema structure:
+    - schema name
+    - fields {name, age, ...}:
+        - field size
+    - last available column id 
+    - total record amount
+
+
+
+Application structure:
+    The idea is that you can add an application, which includes the company name, the URL to the application
+    the state of the application(awaiting response, confirmed, rejected), and date for interview
+    
+   
+Notes on projection:
+    Example: SELECT state, date FROM schema 
+
+    char **project(char **cols);
+
+
+
+To add/fix:
+    - Insertion and regathering only works on row group size blocks
+    - Row group statistics, ie mean, average
+    - Run-length compression
+    - Dictionary compression for strings
