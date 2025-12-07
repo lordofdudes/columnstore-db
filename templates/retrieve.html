@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Record Viewer</title>
+</head>
+<body>
+    <form method="post" action="/query">
+
+        <h3>Select columns to display:</h3>
+        <input type="checkbox" id="state" name="cols" value="state">
+        <label for="state">State</label><br>
+
+        <input type="checkbox" id="date" name="cols" value="date">
+        <label for="date">Date</label><br>
+
+        <input type="checkbox" id="organization" name="cols" value="organization">
+        <label for="organization">Organization</label><br>
+
+        <input type="checkbox" id="url" name="cols" value="url">
+        <label for="url">URL</label><br>
+
+        <input type="checkbox" id="*" name="cols" value="*">
+        <label for="*">*</label><br>
+
+        <hr>
+
+        <h3>Filter results:</h3>
+        <label for="field">Choose column:</label>
+        <select name="field" id="field">
+            <option value="state">State</option>
+            <option value="date">Date</option>
+            <option value="organization">Organization</option>
+            <option value="url">URL</option>
+        </select>
+
+        <label for="operator">Choose operator</label>
+        <select name="operator" id="operator">
+            <option value="=">=</option>
+            <option value="!=">!=</option>
+            <option value="<"><</option>
+            <option value="<="><=</option>
+            <option value=">">></option>
+            <option value=">=">>=</option>
+        </select>
+        
+        <input type="text" name="value" placeholder="Enter filter value">
+
+        <br><br>
+        <button type="submit">Submit</button>
+    </form>
+
+    <hr>
+
+    {% if results %}
+        <h3>Query Results:</h3>
+        <ul>
+            {% for r in results %}
+                <li>{{ r }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</body>
+</html>
