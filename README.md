@@ -2,7 +2,7 @@
 gcc -o filecreate filecreate.c
 
 ## 2. Building the Shared Library (`libdb.so`)
-gcc -o filecreate filecreate.c
+gcc -shared -o libdb.so -fPIC filecreate.c
 
 ## 3. Running the Flask Web Server
 python3 app.py
