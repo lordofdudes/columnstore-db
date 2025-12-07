@@ -67,7 +67,7 @@ Notes on implementation:
             - 0
             occupying 80 bytes (16*5)
             
-        in total a row occupies 1584 bytes
+        in total a row group occupies 1584 bytes
         
 
 Schema structure:
@@ -96,3 +96,138 @@ To add/fix:
     - Row group statistics, ie mean, average
     - Run-length compression
     - Dictionary compression for strings
+
+
+
+
+
+
+
+
+Paging and Pager:
+    Structures and Data:
+        * Physical Pages (Buffer Pool)
+        * N pages: Fixed, but manually set, number of pages in memory (e.g., 16 pages)
+        * Page size X: Each page is X bytes (e.g., 256 bytes)
+        * Linked list structure: Pages organized in a doubly-linked list for LRU tracking
+
+        * Page metadata: Each page contains:
+            - Content buffer (X bytes of data)
+            - Virtual page number (which part of file it represents)
+            - Pin count (prevents eviction while in use)
+            - Dirty flag (indicates if written to)
+            - Last accessed timestamp (for LRU)
+            - Pointers to next/prev pages in list
+
+
+    Virtual Pages (File Abstraction)
+        * M virtual pages: Total file divided into chunks of size X
+        * Calculation: M = ceiling(file_size / X)
+        * Mapping: Virtual page P corresponds to file bytes P×X, (P+1)×X
+
+
+    Buffer Pool Manager
+        * Maintains the linked list of N physical pages
+        * Provides mapping from virtual page number to physical page
+        * Handles eviction policy (LRU)
+
+
+Append-Only Insertion Workflow:
+
+    1. Calculate row group information
+    Calculate corresponding row group:
+        RG = floor(total number of records/max row group record size),
+
+    then calculate position in RG: 
+        RG_P = total number of records % max group record size,
+
+    check if new row group needed: 
+        if RG_P == 0 and N_records > 0, allocate new row group.
+
+    Calculate the size in bytes of all rows in a row group.
+    Finally calculate the base offset for the row group:
+        BASE = Magic Number size (4) + (RG * row group row size)
+        
+
+        # Example for the very 1st record
+            RG = floor(0/16) = 0
+            RG_P = 0 % 16 = 0
+            Size = 16(20+70+4+5) = 1584
+            BASE = 4 + (0 * 1584) = 4
+        
+        # Example for 2nd record
+            RG = floor(1/16) = 0
+            RG_P = 1 % 16 = 1
+            Size = 16(20+70+4+5) = 1584
+            BASE = 4 + (0 * 1584) = 4
+        
+        # Example for 17th record
+            RG = floor(17/16) = 1  
+            RG_P = 17 % 16 = 1
+            Size = 16(20+70+4+5) = 1584
+            BASE = 4 + (1 * 1584) = 1588
+
+    2. Calculate column positions for each field
+    For each field,
+    calculate the total size of a column chunk:
+        CC_S = (max row group record amount * field size)
+
+    Sum each size into an intermediary total previous chunk-sizes variable
+    to determine the next column chunk offset:
+        int_CC_S = 0 + CC_S1 + CC_S2 + CC_S3 + ... + CC_Sn
+
+    calculate base offset for a column chunk in row group:
+        CC_P = BASE + int_CC_S
+    
+    Determine which virtual page each base column chunk corresponds to:
+        VP = floor(CC_P / X)
+
+    Determine offset in page to write:
+        offset = CC_P % X
+
+    
+        # Example using field specifications above, 1st record
+            First field:
+                CC_S = (4 * 16) = 64
+                int_CC_S = 0
+                CC_P = 4 + 0 = 4
+                VP = floor(4/256) = 0
+            Second field:
+                CC_S = (5 * 16) = 80
+                int_CC_S = 0 + 64 = 64
+                CC_P = 4 + 64 = 68
+                VP = floor(68/256) = 0
+            Third field:
+                CC_S = (20 * 16) = 320
+                int_CC_S = 0 + 64 + 80 = 144
+                CC_P = 4 + 144 = 148
+                VP = floor(148/256) = 0
+            Fourth field:
+                CC_S = (70 * 16) = 1120
+                int_CC_S = 0 + 64 + 80 + 320 = 464
+                CC_P = 4 + 464 = 468
+                VP = floor(468/256) = 1
+
+            Notice the next 1120 bytes totaling 1584 covers ATLEAST 
+            1584 / 256 = 6 pages with each row sized 20+70+4+5 = 99
+            so it takes 256/99 = 2.6 rows to fill an entire page, not very efficient
+            for page eviction.
+            Choose page size and page amount wisely.
+
+    3. Writing
+    When actually writing the data to the page, assure each write is aligned to page boundary.
+    If data written is exceeding boundary, grab next virtual page to write.
+    When determining which virtual page to write to, check if page is already present in list
+    if present (Hit) 
+        simply write to that page.
+    If not present (Miss)
+        find least recently used page in list,
+        if dirty
+            write that physical page onto disk, set least recently tag to 0, set page number to the current page, set dirty tag to 0,
+            read calculated virtual page's content into physical page's content
+        if not dirty
+            do same as above but don't write page to disk
+        
+    
+    4. Updating metadata
+    After an insertion, increment number of records 

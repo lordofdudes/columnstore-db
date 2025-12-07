@@ -74,8 +74,6 @@ char **parse_query(char **cols, int num_cols, char *filtered_col, int amount, in
 char **filter(int fd, schema_t *sch, field_desc_t *head, char *filtered_col, int amount, int *ptr2, char *op);
 int parse_ints(void *chunk, int num_vals, int val, cmpfunc_t cmp_op);
 cmpfunc_t determine_op(char *op);
-page_t *page_init(int page_nr);
-void init_pages(void);
 void paginate_schema(schema_t *sch, field_desc_t *head, int offset);
 void print_hex_dump(char *buffer, size_t length);
 
@@ -116,10 +114,6 @@ int main(int argc, void *argv[]){
     printf("Failed writing header magic\n");
     return 0;
   }
-  init_pages();
-  off_t addr = lseek(fd, 0, SEEK_CUR);
-  int page_offset = addr % BLOCK_SIZE;
-  paginate_schema(sch, head, page_offset);
   init_row_group(fd, sch, head);
   insert_footer(fd, sch, head);
 
@@ -776,122 +770,6 @@ cmpfunc_t determine_op(char *op){
   }
   return NULL;
 }
-
-
-page_t *page_init(int page_nr){
-  page_t *page = malloc(sizeof(page_t));
-  page->content = malloc(BLOCK_SIZE);
-  memset(page->content, 0, BLOCK_SIZE);
-  // Maybe add +1 byte and set that byte of content to \0
-
-  page->last_accessed = 0;
-  page->page_nr = page_nr;
-  page->dirty = 0;
-  page->pinned = 0;
-  return page;
-}
-
-void init_pages(void){
-  for(int i = 0; i < NUM_PAGES; i++){
-    pages[i] = page_init(i);
-  }
-}
-
-/*void paginate_schema(schema_t *sch, field_desc_t *head, int offset){
-  for(int i = 0; i < NUM_PAGES; i++){
-    if(!pages[i]->pinned){
-      // Copy over the schema data to the page
-      memcpy(pages[i]->content + offset, sch, sizeof(schema_t));
-
-      // Copy each field descriptor into the page
-      int k = 0;
-      field_desc_t *fd = NULL;
-      void *res = NULL;
-      for(fd = head; fd; fd = fd->next, k++){
-        res = memcpy(pages[i]->content + offset + sizeof(schema_t) + (sizeof(field_desc_t) * k), fd, sizeof(field_desc_t));
-        printf("Wrote %s with ID: %d at %d\n", fd->name, fd->ColumnID, res);
-      }
-
-      // Copy over each row groups column chunk offset
-      int previous_fd_sizes = 0;
-      int j = 0;
-      for(fd = head; fd; fd = fd->next, j++){
-        int col_offset = calculate_column_offset(sch->record_amount, previous_fd_sizes, sch->max_rg_record_amount);
-        void *res2 = memcpy(pages[i]->content + offset + sizeof(schema_t) + (sizeof(field_desc_t) * k) + (sizeof(int) * j), &col_offset, sizeof(int));
-        printf("Wrote %d at %d\n", col_offset, res2);
-      }
-      print_hex_dump(pages[i]->content, BLOCK_SIZE);
-      return;
-    }
-  }
-  // No available pages, replace LRU page from queue
-  return;
-}*/
-
-void paginate_schema(schema_t *sch, field_desc_t *head, int offset) {
-    for (int i = 0; i < NUM_PAGES; i++) {
-        if (!pages[i]->pinned) {
-            char *base = pages[i]->content + offset;
-            char *cursor = base;
-
-            // --- Write schema header ---
-            memcpy(cursor, &sch->record_amount, sizeof(int));
-            cursor += sizeof(int);
-
-            memcpy(cursor, &sch->max_rg_record_amount, sizeof(int));
-            cursor += sizeof(int);
-
-            memcpy(cursor, &sch->field_amount, sizeof(int));
-            cursor += sizeof(int);
-
-            // --- Write each field descriptor ---
-            field_desc_t *fd = head;
-            for (int k = 0; fd; fd = fd->next, k++) {
-                memcpy(cursor, &fd->size, sizeof(int));
-                cursor += sizeof(int);
-
-                memcpy(cursor, fd->name, 20);  // fixed-length name
-                cursor += 20;
-
-                memcpy(cursor, &fd->type, sizeof(int));
-                cursor += sizeof(int);
-
-                memcpy(cursor, &fd->ColumnID, sizeof(int));
-                cursor += sizeof(int);
-
-                printf("Wrote field '%s' (ID: %d, size=%d, type=%d)\n",
-                       fd->name, fd->ColumnID, fd->size, fd->type);
-            }
-
-            // --- Write column offsets ---
-            int previous_fd_sizes = 0;
-            fd = head;
-            for (int j = 0; fd; fd = fd->next, j++) {
-                int col_offset = calculate_column_offset(
-                    sch->record_amount,
-                    previous_fd_sizes,
-                    sch->max_rg_record_amount
-                );
-
-                memcpy(cursor, &col_offset, sizeof(int));
-                cursor += sizeof(int);
-
-                printf("Wrote column offset %d for field '%s'\n",
-                       col_offset, fd->name);
-
-                previous_fd_sizes += fd->size;
-            }
-
-            // --- Dump page for debugging ---
-            print_hex_dump(pages[i]->content, BLOCK_SIZE);
-            return;
-        }
-    }
-
-    // No available pages, replace LRU page from queue
-    return;
-}
-
 
 void print_hex_dump(char *buffer, size_t length) {
     for (size_t i = 0; i < length; i++) {
