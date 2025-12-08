@@ -1,0 +1,21 @@
+# --- Compiled C artifacts ---
+*.o
+*.so
+filecreate     # your compiled executable
+libdb.so       # shared library
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- Editor / OS junk ---
+.vscode/
+.idea/
+*~
+.DS_Store
+Thumbs.db
+
+# --- Local database files ---
+new_file1
+*.db
+*.sqlite*
