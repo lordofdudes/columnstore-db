@@ -16,7 +16,7 @@
  *
  * When implementing the pager, the storage layer will go through
  * pager_read() / pager_write() instead of calling read()/write()
- * directly — that's the only change needed here.
+ * directly
  ************************************************************/
 
 #define MAX_RG_RECORD_AMOUNT 16

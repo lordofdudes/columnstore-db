@@ -6,8 +6,8 @@
 
 /*
  * --- Pager stub ---
- * When you implement the pager, replace BLOCK_SIZE / NUM_PAGES and the
- * page_t struct with your real definitions and move them into pager.h.
+ * When implementing the pager, replace BLOCK_SIZE / NUM_PAGES and the
+ * page_t struct with real definitions and move them into pager.h.
  * The functions below will then call pager_read()/pager_write() instead
  * of raw read()/write() — nothing above this layer needs to change.
  */

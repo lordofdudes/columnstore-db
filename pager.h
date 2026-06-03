@@ -27,7 +27,6 @@
 
 #include "storage.h"   /* for page_t, BLOCK_SIZE, NUM_PAGES */
 
-/* Placeholder prototypes — fill these in when you implement the pager. */
 page_t *pager_read(int fd, int page_nr);
 void    pager_write(int fd, int page_nr);
 void    pager_flush(int fd);
