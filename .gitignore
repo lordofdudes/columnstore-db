@@ -1,0 +1,6 @@
+*.o
+*.so
+filecreate
+__pycache__/
+*.pyc
+new_file1

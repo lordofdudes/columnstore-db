@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Job application website</title>
+     <style>
+    input { margin: 4px; }
+    .field-group { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+    <h1>Schema creation</h1>
+    <form method="post" action="/create">
+        <div id="fields">
+            <div class="field-group">
+                <input name="field" placeholder="name:type:size" />
+            </div>
+        </div>
+        <button type="button" onclick="addField()">Add field</button><br><br>
+        <button type="submit">Create Schema</button>
+    </form>
+
+    <hr>
+
+    <h1>Insert Row</h1>
+    <form method="post" action="/insert">
+        <input type="text" name="filename" placeholder="database filename" required><br>
+        <input type="text" name="value" placeholder="state (int)" required><br>
+        <input type="text" name="value" placeholder="date (string)" required><br>
+        <input type="text" name="value" placeholder="organization (string)" required><br>
+        <input type="text" name="value" placeholder="url (string)" required><br>
+        <button type="submit">Insert</button>
+    </form>
+
+ 
+
+    <hr>
+    <h2>View All Records</h2>
+    <a href="/retrieve"><button>Go to Record Viewer</button></a>
+
+    <script>
+        function addField(){
+            const div = document.createElement('div');
+            div.className = "field-group";
+            div.innerHTML = `<input name="field" placeholder="name:type:size" />`;
+            document.getElementById('fields').appendChild(div);
+        }
+    </script>
+</body>
+</html>
