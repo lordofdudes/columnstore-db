@@ -1,0 +1,50 @@
+[01010011 (S)] - 0x0 (Magic, char)
+[01000001 (A)] - 0x1 (Magic, char)
+[01001101 (M)] - 0x2 (Magic, char)
+[00110001 (1)] - 0x3 (Magic, char)
+
+-- Actual data --
+
+-- Schema metadata --
+
+-- Field descriptor metadata --
+
+[00000000]     - SEEK_END - 0x8 (Footer size, int)
+[00000000]     - SEEK_END - 0x7 
+[00000000]     - SEEK_END - 0x6 
+[00000000]     - SEEK_END - 0x5 
+[01010011 (S)] - SEEK_END - 0x4 (Magic, char)
+[01000001 (A)] - SEEK_END - 0x3 (Magic, char)
+[01001101 (M)] - SEEK_END - 0x2 (Magic, char)
+[00110001 (1)] - SEEK_END - 0x1 (Magic, char)
+[xxxxxxxx] - SEEK_END (end of file | start of next free byte)
+
+
+Insertion flow:
+
+- validate file(
+    seek file(SEEK_END - 0x4)
+    read addresses(-0x4, -0x3, -0x2, -0x1) as char(s)
+  )
+- fill footer size(
+    seek file(SEEK_END - 0x8)
+    read addresses(-0x8, -0x7, -0x6, -0x5) as int
+  )
+
+- seek file(SEEK_END - 0x8 - footer size)
+- reconstruct schema(
+    read addresses(-0x8 - footer size to - schema size) as schema_t
+    read addresses(- schema size to SEEK_END - 0x8) as field_desc_t(s)
+  )
+
+
+
+
+Pager insertion flow:
+
+- validate file(
+    seek file(SEEK_END - 0x4)
+    read addresses(-0x4, -0x3, -0x2, -0x1) as char(s)
+  )
+
+- Check if schema page is allocated
