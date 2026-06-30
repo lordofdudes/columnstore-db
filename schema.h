@@ -24,7 +24,7 @@
 typedef void **record;
 
 typedef struct field_desc field_desc_t;
-struct field_desc {
+struct field_desc{
     int size;
     char name[20];
     int type;
@@ -33,7 +33,7 @@ struct field_desc {
 };
 
 typedef struct schema schema_t;
-struct schema {
+struct schema{
     int record_amount;
     int max_rg_record_amount;
     int field_amount;
@@ -47,15 +47,14 @@ void          reconstruct_schema(int fd, schema_t *sch, field_desc_t **head);
 
 typedef int (*cmpfunc_t)(int, int);
 
-char      **filter(int fd, schema_t *sch, field_desc_t *head,
-                   char *filtered_col, int amount, int *ptr2, char *op);
-char      **project(schema_t *sch, field_desc_t *head,
-                    char **vals, int num_vals, char **cols, int num_cols);
-char      **parse_query(char **cols, int num_cols,
-                        char *filtered_col, int amount, int *res2, char *op);
+char      **filter(int fd, schema_t *sch, field_desc_t *head, char *filtered_col, int amount, int *ptr2, char *op);
+char      **project(schema_t *sch, field_desc_t *head, char **vals, int num_vals, char **cols, int num_cols);
+char      **parse_query(char **cols, int num_cols, char *filtered_col, int amount, int *res2, char *op);
 char      **return_all(int *outgoing_row_amount);
 
 int         parse_ints(void *chunk, int num_vals, int val, cmpfunc_t cmp_op);
 cmpfunc_t   determine_op(char *op);
+
+void free_schema(schema_t *sch, field_desc_t *head);
 
 #endif

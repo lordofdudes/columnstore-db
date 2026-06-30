@@ -51,10 +51,18 @@ void print_schema(schema_t *sch) {
            sch->record_amount, sch->max_rg_record_amount, sch->field_amount);
 }
 
+void print_field_descriptors(field_desc_t *head) {
+    int i = 0;
+    for (field_desc_t *cur = head; cur; cur = cur->next, i++) {
+        printf("FIELD %d: name %s, size %d, type %d, ColumnID %d\n",
+               i, cur->name, cur->size, cur->type, cur->ColumnID);
+    }
+}
+
 /*
  * Reads the footer region (caller must have already seeked to the top of it)
  * and populates sch + builds the field_desc linked list.
- * NOTE: Once the pager exists, this will go through pager_read() instead
+ * NOTE: Once the pager is implemented, this will go through pager_read() instead
  * of calling read() directly, but the logic should be the same.
  */
 void reconstruct_schema(int fd, schema_t *sch, field_desc_t **head) {
@@ -62,11 +70,12 @@ void reconstruct_schema(int fd, schema_t *sch, field_desc_t **head) {
     print_schema(sch);
 
     field_desc_t *prev = NULL;
-    for (int i = 0; i < sch->field_amount; i++) {
+    for(int i = 0; i < sch->field_amount; i++){
         field_desc_t *field = malloc(sizeof(field_desc_t));
-        read(fd, field, sizeof(field_desc_t) - 8);
+
+        read(fd, field, sizeof(field_desc_t) - 0x8);
         field->next = NULL;
-        if (prev == NULL) *head = field;
+        if(prev == NULL) *head = field;
         else prev->next = field;
         prev = field;
     }
@@ -96,8 +105,8 @@ cmpfunc_t determine_op(char *op) {
 int parse_ints(void *chunk, int num_vals, int val, cmpfunc_t cmp_op) {
     int *ptr = (int *)chunk;
     int count = 0;
-    for (int i = 0; i < num_vals; i++)
-        if (cmp_op(ptr[i], val)) count++;
+    for(int i = 0; i < num_vals; i++)
+        if(cmp_op(ptr[i], val)) count++;
     return count;
 }
 
@@ -266,4 +275,15 @@ char **return_all(int *outgoing_row_amount) {
         free(chunk);
     }
     return rows;
+}
+
+
+void free_schema(schema_t *sch, field_desc_t *head) {
+    free(sch);
+    field_desc_t *cur = head;
+    while (cur) {
+        field_desc_t *next = cur->next;
+        free(cur);
+        cur = next;
+    }
 }

@@ -3,7 +3,10 @@
 #include <string.h>
 #include "schema.h"
 #include "storage.h"
+#include "pager.h"
 
+// Usage: argv[x] = fieldname:type:size(in bytes) [...] 0=int, 1=string
+// Example: ./main id:0:4 name:1:20 age:0:4
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Usage: %s field:type:size [...]\n", argv[0]);
@@ -67,6 +70,6 @@ int main(int argc, char *argv[]) {
     init_row_group(fd, sch, head);
     insert_footer(fd, sch, head);
     if (!insert_magic(fd))    { printf("Failed writing footer magic\n"); return 0; }
-
+    free_schema(sch, head);
     return 0;
 }

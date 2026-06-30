@@ -3,12 +3,12 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -g -fPIC
 
 # Source files for the main executable
-SRCS    = main.c schema.c storage.c
+SRCS    = main.c schema.c storage.c pager.c query.c
 OBJS    = $(SRCS:.c=.o)
 TARGET  = filecreate
 
 # Source files for the shared library
-LIB_SRCS = schema.c storage.c 
+LIB_SRCS = schema.c storage.c pager.c query.c
 LIB_OBJS = $(LIB_SRCS:.c=.o)
 LIB_TGT  = libdb.so
 

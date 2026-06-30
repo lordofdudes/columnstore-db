@@ -9,21 +9,11 @@
  * When implementing the pager, replace BLOCK_SIZE / NUM_PAGES and the
  * page_t struct with real definitions and move them into pager.h.
  * The functions below will then call pager_read()/pager_write() instead
- * of raw read()/write() — nothing above this layer needs to change.
+ * of raw read()/write(), nothing above this layer needs to change.
  */
-#define BLOCK_SIZE 256
-#define NUM_PAGES  2
 
-typedef struct page page_t;
-struct page {
-    char *content;
-    int   page_nr;
-    int   last_accessed;
-    int   dirty;
-    int   pinned;
-};
-
-extern page_t *pages[NUM_PAGES];
+ extern schema_t sch;
+ extern field_desc_t *head;
 
 /* File lifecycle */
 int  open_file(char *fname);
@@ -31,6 +21,7 @@ int  find_file(char *fname);
 int  validate_file(int fd);
 void lock_file(int fd);
 void unlock_file(int fd);
+long get_file_size(int fd);
 
 /* Magic number */
 int  insert_magic(int fd);
@@ -53,5 +44,8 @@ int    insert_row(char *filename, char **col_vals);
 /* Low-level helpers */
 void  *read_chunk(int fd, size_t size);
 void   print_hex_dump(char *buffer, size_t length);
+
+int storage_read(int fd, int offset, void *buffer, int size);
+int storage_write(int fd, int offset, void *buffer, int size);
 
 #endif

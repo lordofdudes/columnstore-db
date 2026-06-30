@@ -3,10 +3,15 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "storage.h"
 #include "schema.h"
+#include <stdint.h>
 
-page_t *pages[NUM_PAGES];
+#include "pager.h"
+
+schema_t sch = {0};
+field_desc_t *head = NULL;
 
 /* ------------------------------------------------------------------ */
 /* File lifecycle                                                       */
@@ -58,6 +63,18 @@ void unlock_file(int fd) {
     lock.l_start  = 0;
     lock.l_len    = 0;
     fcntl(fd, F_SETLK, &lock);
+}
+
+long get_file_size(int fd) {
+    struct stat st;
+    
+    if (fstat(fd, &st) == 0) {
+        // st.st_size holds the size in bytes (off_t type)
+        return st.st_size;
+    } else {
+        perror("Failed to get file stat");
+        return -1;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,7 +150,7 @@ void insert_footer(int fd, schema_t *sch, field_desc_t *head) {
         i++;
     } while (i < row_group_num);
 
-    printf("footer size %d WHAT IS WRONG\n", footer_size);
+    printf("INSERT_FOOTER footer_size: %d\n", footer_size);
     write(fd, &footer_size, sizeof(int));
 }
 
@@ -184,11 +201,10 @@ void insert_record(int fd, record rc, field_desc_t *head, schema_t *sch, int tot
         init_row_group(fd, sch, head);
         new_row_group = 1;
     }
-
+ 
     int available_row_group        = sch->record_amount / sch->max_rg_record_amount;
     int available_row_group_offset = total_row_size * available_row_group + 4;
-    printf("available rg %d from record amount %d and max rg record amount %d\n",
-           available_row_group, sch->record_amount, sch->max_rg_record_amount);
+    printf("available rg %d from record amount %d and max rg record amount %d\n", available_row_group, sch->record_amount, sch->max_rg_record_amount);
     printf("total row group size %d\n", total_row_size);
     printf("available offset %d\n", available_row_group_offset);
 
@@ -212,26 +228,35 @@ void insert_record(int fd, record rc, field_desc_t *head, schema_t *sch, int tot
 }
 
 int insert_row(char *filename, char **col_vals) {
-    int fd = open_file(filename);
-    if (!fd) { printf("FD init failed\n"); return 0; }
-
-    lock_file(fd);
-    if (!validate_file(fd)) { unlock_file(fd); return 0; }
+    //int fd = open_file(filename);
+    //if (!fd) { printf("FD init failed\n"); return 0; }
+    int fd = 0;
+    //lock_file(fd);
+    //if (!validate_file(fd)) { unlock_file(fd); return 0; }
 
     int footer_size;
-    schema_t sch;
-    field_desc_t *head = NULL;
-
+    pager_insert_row(filename, col_vals);
+    return 1;
+    // Seek to top of footer size int segment 
     lseek(fd, -0x8, SEEK_END);
+    // Read footer size into variable
     read(fd, &footer_size, sizeof(int));
+    
+    // Seek to start of footer using footer size
     lseek(fd, -0x8 - footer_size, SEEK_END);
+    printf("footer size: %d\n", footer_size);
+    // Reconstruct schema and field descriptors by reading footer (schema + field descriptor) metadata
     reconstruct_schema(fd, &sch, &head);
-
+    printf("done reconstructing schema\n");
+    // Calculate total row group size (sum of all field sizes * max records per row group)
     int total_row_group_size = 0;
-    for (field_desc_t *cur = head; cur; cur = cur->next)
-        total_row_group_size += cur->size * sch.max_rg_record_amount;
-
+    for(field_desc_t *cur = head; cur; cur = cur->next)
+    total_row_group_size += cur->size * sch.max_rg_record_amount;
+    
+    // Initialize record with column values
     record rc = init_record(&sch, head, col_vals);
+
+    // Insert record into file
     insert_record(fd, rc, head, &sch, total_row_group_size);
 
     unlock_file(fd);
@@ -258,4 +283,26 @@ void print_hex_dump(char *buffer, size_t length) {
     for (size_t i = 0; i < length; i++)
         printf("%02X ", (unsigned char)buffer[i]);
     printf("\n");
+}
+
+// Because function uses SEEK_SET, the offset has to be 0-indexed.
+// Reading the very first byte of the file would require offset = 0, reading the second byte would require offset = 1, etc.
+int storage_read(int fd, int offset, void *buffer, int size){
+    lseek(fd, offset, SEEK_SET);
+    int n = read(fd, buffer, size);
+    if (n < 0) {
+        printf("storage_read failed, to read %d, actually read %d\n", size, n);
+        return 0;  
+    }
+    return n;
+}
+
+int storage_write(int fd, int offset, void *buffer, int size){
+    lseek(fd, offset, SEEK_END);
+    int n = write(fd, buffer, size);
+    if (n != size) {
+        printf("storage_write failed, to write %d, actually wrote %d\n", size, n);
+        return 0;  
+    }
+    return n;
 }
