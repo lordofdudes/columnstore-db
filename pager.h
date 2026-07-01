@@ -43,10 +43,9 @@ struct page {
 extern page_t pages[NUM_PAGES];
 
 page_t *pager_get_available_page();
-page_t *pager_read(int fd, int page_nr);
-void    pager_write(int fd, int page_nr);
-void    pager_memcpy(int fd, int start_addr, void *dest, int size);
-void    pager_flush(page_t *page);
+void    pager_write(int fd, int start_addr, void *src, int size);
+void    pager_read(int fd, int start_addr, void *dest, int size);
+void    pager_flush(int fd, page_t *page);
 void    pager_flush_all(int fd);
 void    pager_pin(page_t *page);
 void    pager_unpin(page_t *page);

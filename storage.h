@@ -15,6 +15,9 @@
  extern schema_t sch;
  extern field_desc_t *head;
 
+ extern int footer_size;
+ extern int file_size;
+
 /* File lifecycle */
 int  open_file(char *fname);
 int  find_file(char *fname);

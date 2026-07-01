@@ -12,6 +12,8 @@
 
 schema_t sch = {0};
 field_desc_t *head = NULL;
+int footer_size = 0;
+int file_size = 0;
 
 /* ------------------------------------------------------------------ */
 /* File lifecycle                                                       */

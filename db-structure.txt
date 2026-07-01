@@ -48,3 +48,20 @@ Pager insertion flow:
   )
 
 - Check if schema page is allocated
+
+
+
+
+
+
+
+
+
+
+
+Calculations for insertion of footer into pages:
+old_start_addr = file_size - 0x8 - footer_size;
+// row group size is 16 * sum of all field descriptor sizes, ie 16*(4+5+20+70)
+new_start_addr = old_start_addr + row_group_size; 
+
+page_write(all footer related stuff, new_start_addr, footer_size);
