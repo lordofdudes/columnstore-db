@@ -17,6 +17,7 @@
 
  extern int footer_size;
  extern int file_size;
+ extern int total_fields_size;
 
 /* File lifecycle */
 int  open_file(char *fname);

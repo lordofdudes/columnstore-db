@@ -14,6 +14,7 @@ schema_t sch = {0};
 field_desc_t *head = NULL;
 int footer_size = 0;
 int file_size = 0;
+int total_fields_size = 0;
 
 /* ------------------------------------------------------------------ */
 /* File lifecycle                                                       */
@@ -212,7 +213,7 @@ void insert_record(int fd, record rc, field_desc_t *head, schema_t *sch, int tot
 
     int base_column_offset = available_row_group_offset;
     int i = 0;
-    for (field_desc_t *cur = head; cur; cur = cur->next, i++) {
+    for(field_desc_t *cur = head; cur; cur = cur->next, i++) {
         int slot_offset = base_column_offset + cur->size * (sch->record_amount % sch->max_rg_record_amount);
         printf("writing at %d\n", slot_offset);
         lseek(fd, slot_offset, SEEK_SET);
@@ -290,6 +291,11 @@ void print_hex_dump(char *buffer, size_t length) {
 // Because function uses SEEK_SET, the offset has to be 0-indexed.
 // Reading the very first byte of the file would require offset = 0, reading the second byte would require offset = 1, etc.
 int storage_read(int fd, int offset, void *buffer, int size){
+
+    if(size == 0) { printf("READ ERROR: Reading size 0\n"); return 0; }
+    if(buffer == NULL) { printf("READ ERROR: Reading into NULL buffer\n"); return 0; }
+    if(offset < 0) { printf("READ ERROR: Reading negative offset %d\n", offset); return 0; }
+
     lseek(fd, offset, SEEK_SET);
     int n = read(fd, buffer, size);
     if (n < 0) {
@@ -300,9 +306,14 @@ int storage_read(int fd, int offset, void *buffer, int size){
 }
 
 int storage_write(int fd, int offset, void *buffer, int size){
-    lseek(fd, offset, SEEK_END);
+
+    if(size == 0) { printf("WRITE ERROR: Writing size 0\n"); return 0; }
+    if(buffer == NULL) { printf("WRITE ERROR: Writing NULL buffer\n"); return 0; }
+    if(offset < 0) { printf("WRITE ERROR: Writing negative offset %d\n", offset); return 0; }
+
+    lseek(fd, offset, SEEK_SET);
     int n = write(fd, buffer, size);
-    if (n != size) {
+    if (n < 0) {
         printf("storage_write failed, to write %d, actually wrote %d\n", size, n);
         return 0;  
     }

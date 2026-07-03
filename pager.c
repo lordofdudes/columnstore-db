@@ -1,12 +1,33 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <ctype.h>
 #include "pager.h"
 #include "storage.h"
 
-#define PAGE_SIZE 8
+#define PAGE_SIZE 4096
 
 page_t pages[NUM_PAGES];
+
+
+void print_page(page_t *page){
+    printf("Page %d:\n", page->page_nr);
+    
+    for(int i = 0; i < PAGE_SIZE; i++){
+        if(i % 16 == 0) printf("[%4d] ", i);  // row label at START of each row, fixed width
+
+        unsigned char byte = (unsigned char)page->content[i];
+        char display = isprint(byte) ? (char)byte : ' ';
+        printf("%02x(%c) ", byte, display);
+
+        if((i + 1) % 4 == 0) printf(" ");      // group separator every 4 bytes
+
+        if((i + 1) % 16 == 0) printf("\n");    // newline at end of row
+    }
+    printf("\n");
+}
 
 page_t *pager_retrieve(int page_nr){
     printf("NUM_PAGES: %d\n", NUM_PAGES);
@@ -41,7 +62,7 @@ int page_pin(int page_nr){
     return 0;
 }
 
-int footer_size;
+
 
 void pager_reconstruct_schema(int fd){
     printf("Reconstructing schema\n");
@@ -62,16 +83,53 @@ void pager_reconstruct_field_descriptors(int fd, int start_page, int end_page){
         if(prev == NULL) head = field;
         else prev->next = field;
         prev = field;
+
+        total_fields_size += field->size;
     }
     print_field_descriptors(head);
 }
+
+void pager_insert_record(int fd, record rc){
+    printf("Before insertion of new row group\n");
+    print_page(&pages[0]);
+    if(sch.record_amount % sch.max_rg_record_amount == 0 && sch.record_amount != 0){
+        // Make space for new row group 
+        sch.record_amount++;
+        pager_write_new_row_group(fd);
+    }
+
+    int available_row_group = sch.record_amount / sch.max_rg_record_amount;
+    int available_row_group_offset = ((total_fields_size * sch.max_rg_record_amount) * available_row_group) + 4;
+    printf("available rg %d from record amount %d and max rg record amount %d\n", available_row_group, sch.record_amount, sch.max_rg_record_amount);
+    printf("total row group size %d\n", total_fields_size * sch.max_rg_record_amount);
+    printf("available offset %d\n", available_row_group_offset);
+
+    int i = 0;
+    for(field_desc_t *cur = head; cur; cur = cur->next, i++){
+        int slot_offset = available_row_group_offset + cur->size * (sch.record_amount % sch.max_rg_record_amount);
+        printf("writing at %d\n", slot_offset);
+        pager_write(fd, slot_offset, rc[i], cur->size);
+        available_row_group_offset += cur->size * sch.max_rg_record_amount;
+    }
+
+    sch.record_amount++;
+    int schema_start = file_size - 0x8 - footer_size;
+    pager_write(fd, schema_start, &sch.record_amount, sizeof(int));
+    printf("After insertion of new row group and record\n");
+    print_page(&pages[0]);
+
+    pager_flush(fd, &pages[0]);
+}
+
 
 void pager_write_new_row_group(int fd){
     int old_footer_start = file_size - 0x8 - footer_size;
     int total_row_group_size = 0;
 
     // Calculate new footer start based on old footer start + total row group size
-    for(field_desc_t *cur = head; cur; cur = cur->next) total_row_group_size += cur->size * sch.max_rg_record_amount;
+    for(field_desc_t *cur = head; cur; cur = cur->next)
+        total_row_group_size += cur->size * sch.max_rg_record_amount;
+    
     int new_footer_start = old_footer_start + total_row_group_size;
     printf("Need to make new row group, moving footer from %d to %d\n", old_footer_start, new_footer_start);
     
@@ -88,7 +146,7 @@ void pager_write_new_row_group(int fd){
 
     // Cheap solution, recalculate column offsets for old + new row groups all over again
     int num_row_groups = (sch.record_amount / sch.max_rg_record_amount) + 1;
-    for (int rg = 0; rg < num_row_groups; rg++) {
+    for (int rg = 0; rg < num_row_groups + 1; rg++) {
         int col_offset = 4 + (rg * total_row_group_size);  // 4 = magic header
         for (field_desc_t *cur = head; cur; cur = cur->next) {
             pager_write(fd, new_footer_start + cur_footer_size, &col_offset, sizeof(int));
@@ -106,7 +164,7 @@ void pager_write_new_row_group(int fd){
 }
 
 // Loads footer metadata (footer size + schema + field descriptors) into footer size, schema and field descriptor variables.
-void pager_read_footer(int fd){;
+int pager_read_footer(int fd){;
     if(file_size == 0) file_size = get_file_size(fd);
 
     // Read footer size, which is schema + field descriptors footer in bytes
@@ -124,7 +182,7 @@ void pager_read_footer(int fd){;
             // Initialize page metadata
             pg->page_nr = page_num;
             page_pin(page_num);
-            pg->content = malloc(PAGE_SIZE);
+            pg->content = calloc(PAGE_SIZE, 1);
             pg->new = 1;
             // Read page's corresponding content from file
             int page_start = page_num * PAGE_SIZE;
@@ -138,7 +196,7 @@ void pager_read_footer(int fd){;
     printf("Reconstructing schema from footer pages %d to %d\n", start_footer_page, end_footer_page);
     pager_reconstruct_schema(fd);
     pager_reconstruct_field_descriptors(fd, start_footer_page, end_footer_page);
-    
+    return 1;
 }   
 
 int pager_insert_row(char *filename, char **col_vals) {
@@ -154,7 +212,7 @@ int pager_insert_row(char *filename, char **col_vals) {
     if(sch.field_amount == 0) { printf("schema does not exist\n"); pager_read_footer(fd); }
 
     record rc = init_record(&sch, head, col_vals);
-
+    print_record(rc);
     pager_insert_record(fd, rc);
 
     unlock_file(fd);
@@ -162,16 +220,6 @@ int pager_insert_row(char *filename, char **col_vals) {
     return 1;
 }
 
-void pager_insert_record(int fd, record rc){
-    if(sch.record_amount % sch.max_rg_record_amount == 0 && sch.record_amount != 0){
-        // Make space for new row group 
-        sch.record_amount++;
-        pager_write_new_row_group(fd);
-    }
-
-
-
-}
 
 /*
  * Reads `size` bytes starting at absolute file offset `start_addr` into `dest`,
@@ -181,6 +229,9 @@ void pager_insert_record(int fd, record rc){
  */
 void pager_read(int fd, int start_addr, void *dest, int size) {
     int bytes_copied = 0;
+
+    if(size <= 0) { printf("PAGER READ ERROR: Reading size <= 0\n"); return; }
+    if(dest == NULL) { printf("PAGER READ ERROR: Reading into NULL buffer\n"); return; }
 
     while (bytes_copied < size) {
         int current_addr = start_addr + bytes_copied;
@@ -215,6 +266,9 @@ void pager_read(int fd, int start_addr, void *dest, int size) {
 void pager_write(int fd, int start_addr, void *src, int size){
     int bytes_written = 0;
 
+    if(size <= 0) { printf("PAGER WRITE ERROR: Writing size <= 0\n"); return; }
+    if(src == NULL) { printf("PAGER WRITE ERROR: Writing NULL buffer\n"); return; }
+
     while (bytes_written < size) {
         int current_addr = start_addr + bytes_written;
         int page_num     = current_addr / PAGE_SIZE;
@@ -238,13 +292,17 @@ void pager_write(int fd, int start_addr, void *src, int size){
     }
 }
 
-
+// Flushes a single page to disk if it is dirty. Does not unpin the page.
 void pager_flush(int fd, page_t *page) {
-    if (page->dirty) {
+    if(page == NULL) {
+        printf("pager_flush: page is NULL\n");
+        return;
+    }
+    
+    if(page->dirty){
         int start_addr = page->page_nr * PAGE_SIZE;
-        storage_write(fd, start_addr, page->content, PAGE_SIZE);
+        storage_write(fd, start_addr, page->content, page->valid_bytes);
         page->dirty = 0;
     }
 }
-
 

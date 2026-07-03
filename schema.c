@@ -59,6 +59,14 @@ void print_field_descriptors(field_desc_t *head) {
     }
 }
 
+void print_record(record rc){
+    for(field_desc_t *cur = head; cur; cur = cur->next){
+        if(cur->type == 0) printf("%d ", *(int *)rc[cur->ColumnID]);
+        else printf("%s ", (char *)rc[cur->ColumnID]);
+    }
+    printf("\n");
+}
+
 /*
  * Reads the footer region (caller must have already seeked to the top of it)
  * and populates sch + builds the field_desc linked list.

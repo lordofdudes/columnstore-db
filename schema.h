@@ -43,8 +43,9 @@ schema_t     *create_initial_schema(int field_amount, int max_rg_record_amount);
 field_desc_t *field_desc_init(int size, char *name, int type, int columnID);
 int           insert_field(field_desc_t *head, field_desc_t *insert);
 void          print_schema(schema_t *sch);
-void print_field_descriptors(field_desc_t *head);
+void          print_field_descriptors(field_desc_t *head);
 void          reconstruct_schema(int fd, schema_t *sch, field_desc_t **head);
+void          print_record(record rc);
 
 typedef int (*cmpfunc_t)(int, int);
 

@@ -49,13 +49,13 @@ void    pager_flush(int fd, page_t *page);
 void    pager_flush_all(int fd);
 void    pager_pin(page_t *page);
 void    pager_unpin(page_t *page);
-
+void    pager_write_new_row_group(int fd);
 
     // So if a file has an Int (4 bytes) and PAGE_SIZE 2 and you want to calculate the page(s) that the int is in, you would do:
     // Start page = file_size - sizeof(int) / PAGE_SIZE = 4 - 4 / 2 = 0
     // End page = file_size - 1 / PAGE_SIZE = 4 - 1 / 2 = 3 / 2 = 1
     // byte[0] = 4 - 4 / 2 = 0, byte[1] = 4 - 3 / 2 = 0, byte[2] = 4 - 2 / 2 = 1, byte[3] = 4 - 1 / 2 = 1
-void pager_read_footer(int fd);
+int pager_read_footer(int fd);
 int pager_insert_row(char *filename, char **col_vals);
 
 #endif
