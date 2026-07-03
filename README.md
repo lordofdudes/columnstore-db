@@ -3,6 +3,8 @@
 ## Overview
 This project implements a column-store database system in C. It is designed to handle projection (SELECT), and selection (WHERE) queries. The database uses block-based storage, with records stored in a columnar format. Creation of tables are done using the provided functions in the different files. See the main loop in columnstore.c or example below.
 
+NOTE: This is a memory variant of the database, which does not permanently store the data onto files.
+
 ## Features
 - **Schema Definition**: Define tables with multiple fields of varying sizes.
 - **Columnar Storage**: Data is stored column by column to improve cache performance for projections.
