@@ -42,20 +42,29 @@ struct page {
 };
 extern page_t pages[NUM_PAGES];
 
+// General pager functions
 page_t *pager_get_available_page();
 void    pager_write(int fd, int start_addr, void *src, int size);
-void    pager_read(int fd, int start_addr, void *dest, int size);
+void    pager_read(int fd, int start_addr, void *dest, int size, int to_pin);
 void    pager_flush(int fd, page_t *page);
 void    pager_flush_all(int fd);
 void    pager_pin(page_t *page);
 void    pager_unpin(page_t *page);
-void    pager_write_new_row_group(int fd);
+int     pager_insert_row(char *filename, char **col_vals);
+
 
     // So if a file has an Int (4 bytes) and PAGE_SIZE 2 and you want to calculate the page(s) that the int is in, you would do:
     // Start page = file_size - sizeof(int) / PAGE_SIZE = 4 - 4 / 2 = 0
     // End page = file_size - 1 / PAGE_SIZE = 4 - 1 / 2 = 3 / 2 = 1
     // byte[0] = 4 - 4 / 2 = 0, byte[1] = 4 - 3 / 2 = 0, byte[2] = 4 - 2 / 2 = 1, byte[3] = 4 - 1 / 2 = 1
-int pager_read_footer(int fd);
-int pager_insert_row(char *filename, char **col_vals);
+
+// Footer-related functions
+int  pager_read_footer(int fd);
+void pager_write_new_row_group(int fd);
+
+
+// LRU, eviction and loading functions
+page_t *pager_evict_page(int fd, int page_nr, int to_pin);
+page_t *find_LRU();
 
 #endif

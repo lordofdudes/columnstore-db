@@ -68,7 +68,7 @@ void pager_reconstruct_schema(int fd){
     printf("Reconstructing schema\n");
     print_schema(&sch);
     int schema_start = file_size - 0x8 - footer_size;
-    pager_read(fd, schema_start, &sch, sizeof(schema_t));
+    pager_read(fd, schema_start, &sch, sizeof(schema_t), 1);
     print_schema(&sch);
 }
 
@@ -78,7 +78,7 @@ void pager_reconstruct_field_descriptors(int fd, int start_page, int end_page){
     field_desc_t *prev = NULL;
     for(int i = 0; i < sch.field_amount; i++){
         field_desc_t *field = malloc(sizeof(field_desc_t));
-        pager_read(fd, field_desc_start + i * (sizeof(field_desc_t) - 0x8), field, sizeof(field_desc_t) - 0x8);
+        pager_read(fd, field_desc_start + i * (sizeof(field_desc_t) - 0x8), field, sizeof(field_desc_t) - 0x8, 1);
         field->next = NULL;
         if(prev == NULL) head = field;
         else prev->next = field;
@@ -227,7 +227,7 @@ int pager_insert_row(char *filename, char **col_vals) {
  * already cached. Caller owns `dest` (must be pre-allocated, size >= `size`).
  * NOTE: This function copies from pages into `dest`, and should not be used to write to pages.
  */
-void pager_read(int fd, int start_addr, void *dest, int size) {
+void pager_read(int fd, int start_addr, void *dest, int size, int to_pin) {
     int bytes_copied = 0;
 
     if(size <= 0) { printf("PAGER READ ERROR: Reading size <= 0\n"); return; }
@@ -240,9 +240,18 @@ void pager_read(int fd, int start_addr, void *dest, int size) {
 
         page_t *pg = pager_retrieve(page_num);
         if(pg == NULL){
-            // Will not be accessed when setting up footer pages as they are loaded beforehand
+            // Will not be accessed when setting up footer pages because they are loaded beforehand
             // but needs to be potentially evicted and loaded in any other use-case
-            printf("TODO Page %d: Fix eviction and loading of new pages.\n", page_num);
+            pg = pager_get_available_page();
+            if(pg == NULL){
+                // Evict a LRU page to disk and load the requested page from disk
+                printf("No available pages to load page %d, evict and load\n", page_num);
+                pg = pager_evict_page(fd, page_num, to_pin);
+
+                // Load the evicted page's content from disk
+                pager_read(fd, page_num * PAGE_SIZE, pg->content, PAGE_SIZE, to_pin);
+
+            }
         }
 
         int bytes_left_in_page = pg->valid_bytes - page_offset;
@@ -276,8 +285,16 @@ void pager_write(int fd, int start_addr, void *src, int size){
 
         page_t *pg = pager_retrieve(page_num);
         if(pg == NULL){
-            printf("TODO Page %d: Fix eviction and loading of new pages.\n", page_num);
-        }
+            pg = pager_get_available_page();
+            if(pg == NULL){
+                // Evict a LRU page to disk and load the requested page from disk
+                printf("No available pages to load page %d, evict and load\n", page_num);
+                pg = pager_evict_page(fd, page_num, 1);
+
+                // Load the evicted page's content from disk
+                pager_read(fd, page_num * PAGE_SIZE, pg->content, PAGE_SIZE, 1);
+            }
+        }   
 
         int bytes_left_in_page = PAGE_SIZE - page_offset;
         int bytes_left_to_write = size - bytes_written;
@@ -305,4 +322,40 @@ void pager_flush(int fd, page_t *page) {
         page->dirty = 0;
     }
 }
+
+// Perhaps also load page at same time, unsure right now.
+page_t *pager_evict_page(int fd, int page_nr, int to_pin){
+    // Find a page to evict (must be not pinned)
+    page_t *page = find_LRU();
+    if(!page->pinned){
+        if(page->dirty){
+            // Flush dirty page to disk before eviction
+            printf("Evicting dirty page %d, flushing to disk\n", page->page_nr);
+            pager_flush(fd, page);
+            page->dirty = 0;
+            page->valid_bytes = 0; // Reset valid bytes since it's being evicted
+        }
+        printf("Evicting page %d from memory\n", page->page_nr);
+        page->page_nr = page_nr;
+        page->pinned = to_pin;
+        page->last_accessed = 0; // Reset LRU for new page
+        return page;
+    }
+
+    printf("No unpinned pages available for eviction\n");
+    return NULL;
+}
+
+
+page_t *find_LRU(){
+    int LRU = 0;
+    for(int i = 0; i < NUM_PAGES; i++){
+        if(pages[i].last_accessed > pages[LRU].last_accessed 
+                                     && pages[i].pinned == 0){
+            LRU = i;
+        } 
+    }
+    return &pages[LRU];
+}
+
 
