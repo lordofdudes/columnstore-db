@@ -64,6 +64,12 @@ int page_pin(int page_nr){
 }
 
 
+void pager_init(int fd){
+    pager_read_footer(fd);
+
+    // Simple stub for readability
+    // Maybe do some more stuff here, don't know yet
+}
 
 void pager_reconstruct_schema(int fd){
     printf("Reconstructing schema\n");

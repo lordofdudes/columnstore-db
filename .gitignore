@@ -1,6 +1,7 @@
 *.o
 *.so
 filecreate
+samdb
 __pycache__/
 *.pyc
 new_file1

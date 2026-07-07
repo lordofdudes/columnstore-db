@@ -5,7 +5,7 @@ CFLAGS  = -Wall -Wextra -g -fPIC
 # Source files for the main executable
 SRCS    = main.c schema.c storage.c pager.c query.c
 OBJS    = $(SRCS:.c=.o)
-TARGET  = filecreate
+TARGET  = samdb
 
 # Source files for the shared library
 LIB_SRCS = schema.c storage.c pager.c query.c
@@ -27,6 +27,6 @@ $(LIB_TGT): $(LIB_OBJS)
 
 # Clean up both targets and all generated object files
 clean:
-	rm -f *.o $(TARGET) $(LIB_TGT) new_file1
+	rm -f *.o $(TARGET) $(LIB_TGT) jobapplications
 
 .PHONY: all clean

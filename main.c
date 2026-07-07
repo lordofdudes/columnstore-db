@@ -4,72 +4,74 @@
 #include "schema.h"
 #include "storage.h"
 #include "pager.h"
+#include "query.h"
+
+
+// This file, and in turn the main() function, functions as a CLI option for database management
+// in contrast with for example the web application variant
+// which utilizes a shared library to call functions in Flask.
+// Note: a lot of additional functionalities like querying
+// is currently only supported on the web application
+
+
+void print_help(){
+    printf("COMMANDS:\n");
+
+    printf("  create table_name fieldname:type:size\n");
+    printf("      where fieldname is the name of the field, type is either 0 for int or 1 for string\n");
+    printf("      and size is the MAX number of bytes each field can occupy on disk\n\n");
+
+    printf("  insert table_name colval colval colval ...\n");
+    printf("      where colval is the value of each column in the record\n\n");
+
+    printf("  Querying is currently supported only by use of the web application\n\n");
+    printf("  More functionality to be added soon\n");
+}
 
 // Usage: argv[x] = fieldname:type:size(in bytes) [...] 0=int, 1=string
-// Example: ./main id:0:4 name:1:20 age:0:4
+// Example: ./samdb create mytable id:0:4 name:1:20 age:0:4
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        printf("Usage: %s field:type:size [...]\n", argv[0]);
+    if(argc == 1){
+        printf("Please enter command `./samdb help` for usage\n");
+        return 1;
+    } 
+
+    if(strcmp(argv[1], "help") == 0){
+        print_help();
+        return 1;
+    }
+    printf("Enter %s help to get list of all commands and how to use them\n", argv[0]);
+    if(argc < 3){
+        printf("Usage: %s <command> <table> [args]\n", argv[0]);
+        return 1;
+    }
+    char *cmd   = argv[1];
+    char *table = argv[2];
+
+    if(strcmp(cmd, "create") == 0){
+        int res = query_create_table(table, argv + 3, argc - 3);
+        if(res){
+            printf("Created table %s with %d fields:\n", table, argc - 3);
+            for(int i = 0; i < argc - 3; i++){
+                printf("%s ", (argv + 3)[i]); 
+            }
+        } else printf("Failed to create table %s\n", table);
+        return 1;
+    } 
+    
+    if(strcmp(cmd, "insert") == 0){
+        int res = query_insert_row(table, argv+3);
+        if(res){
+            printf("Inserted row: ");
+            for(int i = 0; i < argc - 3; i++){
+                printf("%s ", (argv+3)[i]);
+            }
+        } else printf("Failed to insert record\n");
         return 1;
     }
 
-    int field_amount = argc - 1;
-    schema_t *sch = create_initial_schema(field_amount, MAX_RG_RECORD_AMOUNT);
-    field_desc_t *head = NULL;
-    field_desc_t *last = NULL;
-
-    for (int i = 1; i < argc; i++) {
-        char input_copy[256];
-        strncpy(input_copy, argv[i], sizeof(input_copy) - 1);
-        input_copy[sizeof(input_copy) - 1] = '\0';
-
-        char *name_token = strtok(input_copy, ":");
-        char *type_token = strtok(NULL, ":");
-        char *size_token = strtok(NULL, ":");
-        char *extra      = strtok(NULL, ":");
-
-        if (!name_token || !type_token || !size_token) {
-            printf("Error: '%s' must have format fieldname:type:size\n", argv[i]);
-            return 1;
-        }
-        if (extra) {
-            printf("Error: Too many colons in '%s'\n", argv[i]);
-            return 1;
-        }
-
-        int name_len = strlen(name_token);
-        if (name_len == 0) { printf("Error: Field name cannot be empty\n"); return 1; }
-        if (name_len > 20) { printf("Error: Field name '%s' too long\n", name_token); return 1; }
-
-        char *endptr;
-        int type = strtol(type_token, &endptr, 10);
-        if (*endptr != '\0' || (type != 0 && type != 1)) {
-            printf("Error: Invalid type '%s' for '%s' (0=int, 1=string)\n", type_token, name_token);
-            return 1;
-        }
-
-        int size = strtol(size_token, &endptr, 10);
-        if (*endptr != '\0' || size <= 0) {
-            printf("Error: Invalid size '%s' for '%s'\n", size_token, name_token);
-            return 1;
-        }
-        if (size > 1024) printf("Warning: Large size %d for field '%s'\n", size, name_token);
-
-        printf("Field %d: name='%s', type=%d (%s), size=%d\n",
-               i, name_token, type, type == 0 ? "int" : "string", size);
-
-        field_desc_t *fd = field_desc_init(size, name_token, type, i - 1);
-        if (!head) head = fd;
-        else last->next = fd;
-        last = fd;
-    }
-
-    int fd = open_file("new_file1");
-    if (!fd)                  { printf("FD init failed\n");           return 0; }
-    if (!insert_magic(fd))    { printf("Failed writing header magic\n"); return 0; }
-    init_row_group(fd, sch, head);
-    insert_footer(fd, sch, head);
-    if (!insert_magic(fd))    { printf("Failed writing footer magic\n"); return 0; }
-    free_schema(sch, head);
+    // future: query, delete...
+    printf("Unknown command: %s\n", cmd);
     return 0;
 }
+

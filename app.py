@@ -9,9 +9,9 @@ app = Flask(__name__)
 lib = ctypes.CDLL('./libdb.so')
 
 # Set up arguments for insert row functions (char *filename, char **col_vals)
-lib.insert_row.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char_p)]
+lib.query_insert_row.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char_p)]
 # No return type for insert row
-lib.insert_row.restype = None
+lib.query_insert_row.restype = None
 
 # char **return_all(int n)
 lib.return_all.argtypes = [ctypes.POINTER(ctypes.c_int)]
@@ -20,6 +20,9 @@ lib.return_all.restype = ctypes.POINTER(ctypes.c_char_p)
 # char **parse_query(char **cols, int num_cols, char *filtered_col, int amount)
 lib.parse_query.argtypes = [ctypes.POINTER(ctypes.c_char_p), ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.c_char_p]
 lib.parse_query.restype = ctypes.POINTER(ctypes.c_char_p)
+
+lib.query_create_table.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char_p), ctypes.c_int]
+lib.query_create_table.restype = ctypes.c_int
 
 #char **parse_query(char *filtered_col, int amount){
 #lib.parse_query.argtypes = [ctypes.c_char_p, ctypes.c_int]
@@ -35,14 +38,16 @@ def index():
 
 @app.route('/create', methods=['POST'])
 def create():
+    schema_name = request.form.get('schema_name')
+    c_schema_name = schema_name.encode('utf-8')
     fields = request.form.getlist('field')
-    field_string = ' '.join(fields)
-    field_args = field_string.split()
 
-    result = subprocess.run(['./filecreate'] + field_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    EncodedArray = ctypes.c_char_p * (len(fields) + 1)
+    c_fields = EncodedArray(*(f.encode('utf-8') for f in fields), None)
+    result = lib.query_create_table(c_schema_name, c_fields, len(fields))
 
-    output = result.stdout.decode() + result.stderr.decode()
-    return f"<pre>{output}</pre><a href='/'>Go Back </a>"
+    return f"<p>{'Created' if result else 'Failed'}</p><a href='/'>Go Back</a>"
+
 
 @app.route('/insert', methods=['POST'])
 def insert():
@@ -53,7 +58,7 @@ def insert():
     c_values = EncodedArray(*(v.encode('utf-8') for v in values), None)
 
 
-    lib.insert_row(filename.encode('utf-8'), c_values)
+    lib.query_insert_row(filename.encode('utf-8'), c_values)
 
     return "<p>Row inserted successfully.</p><a href='/'>Back</a>"
 

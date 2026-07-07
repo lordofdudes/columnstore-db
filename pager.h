@@ -43,6 +43,7 @@ struct page {
 extern page_t pages[NUM_PAGES];
 
 // General pager functions
+void    pager_init(int fd);
 page_t *pager_get_available_page();
 void    pager_write(int fd, int start_addr, void *src, int size, int to_pin);
 void    pager_read(int fd, int start_addr, void *dest, int size, int to_pin);
