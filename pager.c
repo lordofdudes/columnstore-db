@@ -7,7 +7,7 @@
 #include "pager.h"
 #include "storage.h"
 
-#define PAGE_SIZE 4096
+#define PAGE_SIZE 64
 
 page_t pages[NUM_PAGES];
 
@@ -30,21 +30,22 @@ void print_page(page_t *page){
 }
 
 page_t *pager_retrieve(int page_nr){
-    printf("NUM_PAGES: %d\n", NUM_PAGES);
+    printf("pager_retrieve: NUM_PAGES: %d\n", NUM_PAGES);
     for(int i = 0; i < NUM_PAGES; i++){
-        printf("Checking page %d: page_nr=%d, new=%d\n", i, pages[i].page_nr, pages[i].new);
+        printf("pager_retrieve: Checking page %d: page_nr=%d, new=%d, last_accessed=%d\n", i, pages[i].page_nr, pages[i].new, pages[i].last_accessed);
         if(pages[i].page_nr == page_nr && pages[i].new != 0){
-            printf("retrieve_page: Page %d found in memory\n", page_nr);
+            printf("pager_retrieve: Page %d found in memory\n", page_nr);
             return &pages[i];
         }
     }
-    printf("retrieve_page: Page %d not found in memory\n", page_nr);
+    printf("pager_retrieve: Page %d not found in memory\n", page_nr);
     return NULL;
 }
 
 page_t *pager_get_available_page(){
     for(int i = 0; i < NUM_PAGES; i++){
         if(pages[i].pinned == 0){
+            printf("pager_get_available_page: Returning unpinned/available page %d\n", i);
             return &pages[i];
         }
     }
@@ -90,35 +91,35 @@ void pager_reconstruct_field_descriptors(int fd, int start_page, int end_page){
 }
 
 void pager_insert_record(int fd, record rc){
-    printf("Before insertion of new row group\n");
-    print_page(&pages[0]);
     if(sch.record_amount % sch.max_rg_record_amount == 0 && sch.record_amount != 0){
         // Make space for new row group 
         sch.record_amount++;
         pager_write_new_row_group(fd);
     }
-
+    // Calculate row group to insert into and offset within that row group
     int available_row_group = sch.record_amount / sch.max_rg_record_amount;
     int available_row_group_offset = ((total_fields_size * sch.max_rg_record_amount) * available_row_group) + 4;
-    printf("available rg %d from record amount %d and max rg record amount %d\n", available_row_group, sch.record_amount, sch.max_rg_record_amount);
-    printf("total row group size %d\n", total_fields_size * sch.max_rg_record_amount);
-    printf("available offset %d\n", available_row_group_offset);
+    printf("Pager_insert_record: Available row group %d from record amount %d and max rg record amount %d\n", available_row_group, sch.record_amount, sch.max_rg_record_amount);
+    printf("Pager_insert_record: Total row group size %d\n", total_fields_size * sch.max_rg_record_amount);
+    printf("Pager_insert_record: Available offset %d\n", available_row_group_offset);
 
     int i = 0;
     for(field_desc_t *cur = head; cur; cur = cur->next, i++){
+        // Calculate offset for this column within the row group and write the column value to that offset
         int slot_offset = available_row_group_offset + cur->size * (sch.record_amount % sch.max_rg_record_amount);
-        printf("writing at %d\n", slot_offset);
-        pager_write(fd, slot_offset, rc[i], cur->size);
+        printf("Pager_insert_record: Writing %d bytes at %d\n", cur->size, slot_offset);
+        pager_write(fd, slot_offset, rc[i], cur->size, 0);
         available_row_group_offset += cur->size * sch.max_rg_record_amount;
     }
 
+    // Update record amount in schema and write it to disk
     sch.record_amount++;
     int schema_start = file_size - 0x8 - footer_size;
-    pager_write(fd, schema_start, &sch.record_amount, sizeof(int));
-    printf("After insertion of new row group and record\n");
-    print_page(&pages[0]);
+    pager_write(fd, schema_start, &sch.record_amount, sizeof(int), 1);
 
-    pager_flush(fd, &pages[0]);
+    // Temporary flush to see result in disk, will later be replace
+    // with a more streamlined flushing approach.
+    pager_flush_all(fd);
 }
 
 
@@ -135,12 +136,12 @@ void pager_write_new_row_group(int fd){
     
     int cur_footer_size = 0;
     // Write schema to new location
-    pager_write(fd, new_footer_start, &sch, sizeof(schema_t));
+    pager_write(fd, new_footer_start, &sch, sizeof(schema_t), 1);
     cur_footer_size += sizeof(schema_t);
 
     // Write field descriptors to new location
     for(field_desc_t *cur = head; cur; cur = cur->next){
-        pager_write(fd, new_footer_start + sizeof(schema_t) + (cur->ColumnID * (sizeof(field_desc_t) - 0x8)), cur, sizeof(field_desc_t) - 0x8);
+        pager_write(fd, new_footer_start + sizeof(schema_t) + (cur->ColumnID * (sizeof(field_desc_t) - 0x8)), cur, sizeof(field_desc_t) - 0x8, 1);
         cur_footer_size += sizeof(field_desc_t) - 0x8;
     }
 
@@ -149,18 +150,18 @@ void pager_write_new_row_group(int fd){
     for (int rg = 0; rg < num_row_groups + 1; rg++) {
         int col_offset = 4 + (rg * total_row_group_size);  // 4 = magic header
         for (field_desc_t *cur = head; cur; cur = cur->next) {
-            pager_write(fd, new_footer_start + cur_footer_size, &col_offset, sizeof(int));
+            pager_write(fd, new_footer_start + cur_footer_size, &col_offset, sizeof(int), 1);
             cur_footer_size += sizeof(int);
             col_offset += cur->size * sch.max_rg_record_amount;
         }
     }
 
     // Write footer size to new location
-    pager_write(fd, new_footer_start + cur_footer_size, &cur_footer_size, sizeof(int));
+    pager_write(fd, new_footer_start + cur_footer_size, &cur_footer_size, sizeof(int), 1);
     footer_size = cur_footer_size;
     file_size += total_row_group_size + (sch.field_amount * sizeof(int)); // Update file size to include new row group + column offsets + footer size
     // Write magic number to new location
-    pager_write(fd, new_footer_start + cur_footer_size + sizeof(int), "SAM1", 4);
+    pager_write(fd, new_footer_start + cur_footer_size + sizeof(int), "SAM1", 4, 1);
 }
 
 // Loads footer metadata (footer size + schema + field descriptors) into footer size, schema and field descriptor variables.
@@ -178,12 +179,18 @@ int pager_read_footer(int fd){;
     for(int page_num = start_footer_page; page_num <= end_footer_page; page_num++){
         page_t *pg = pager_retrieve(page_num);
         if(pg == NULL){
-            pg = pager_get_available_page();
-            // Initialize page metadata
-            pg->page_nr = page_num;
-            page_pin(page_num);
-            pg->content = calloc(PAGE_SIZE, 1);
-            pg->new = 1;
+            pg = pager_get_empty_page();
+            if(pg == NULL){
+                // Evict a LRU page to disk and load the requested page from disk
+                printf("No available pages to load footer page %d, evict and load\n", page_num);
+                pg = pager_evict_page(fd, page_num, 1);
+            } else{
+                // Initialize page metadata
+                pg->page_nr = page_num;
+                page_pin(page_num);
+                pg->content = calloc(PAGE_SIZE, 1);
+                pg->new = 1;
+            }
             // Read page's corresponding content from file
             int page_start = page_num * PAGE_SIZE;
             int bytes_read = storage_read(fd, page_start, pg->content, PAGE_SIZE);
@@ -226,6 +233,8 @@ int pager_insert_row(char *filename, char **col_vals) {
  * transparently crossing as many pages as necessary. Loads any page not
  * already cached. Caller owns `dest` (must be pre-allocated, size >= `size`).
  * NOTE: This function copies from pages into `dest`, and should not be used to write to pages.
+ * i.e. passing a pointer to page->content as `dest`, like
+ * pager_read(fd, 0x1000, page->content, 128, 0);
  */
 void pager_read(int fd, int start_addr, void *dest, int size, int to_pin) {
     int bytes_copied = 0;
@@ -242,16 +251,21 @@ void pager_read(int fd, int start_addr, void *dest, int size, int to_pin) {
         if(pg == NULL){
             // Will not be accessed when setting up footer pages because they are loaded beforehand
             // but needs to be potentially evicted and loaded in any other use-case
-            pg = pager_get_available_page();
+            pg = pager_get_empty_page();
             if(pg == NULL){
                 // Evict a LRU page to disk and load the requested page from disk
                 printf("No available pages to load page %d, evict and load\n", page_num);
                 pg = pager_evict_page(fd, page_num, to_pin);
-
-                // Load the evicted page's content from disk
-                pager_read(fd, page_num * PAGE_SIZE, pg->content, PAGE_SIZE, to_pin);
-
+            } else{
+                // Initialize new page metadata
+                pg->page_nr = page_num;
+                pg->pinned = to_pin;
+                pg->content = calloc(PAGE_SIZE, 1);
+                pg->new = 1;
             }
+            // Load the evicted page's content from disk
+            int bytes_read = storage_read(fd, page_num * PAGE_SIZE, pg->content, PAGE_SIZE);
+            pg->valid_bytes = bytes_read;
         }
 
         int bytes_left_in_page = pg->valid_bytes - page_offset;
@@ -263,6 +277,7 @@ void pager_read(int fd, int start_addr, void *dest, int size, int to_pin) {
         memcpy((unsigned char *)dest + bytes_copied, pg->content + page_offset, chunk);
 
         bytes_copied += chunk;
+        pg->last_accessed++;
     }
 }
 
@@ -270,9 +285,9 @@ void pager_read(int fd, int start_addr, void *dest, int size, int to_pin) {
  * Writes `size` bytes from `src` to absolute page offset `start_addr`,
  * transparently crossing as many pages as necessary. Loads any page not
  * already cached. Caller owns `src` (must be pre-allocated, size >= `size`).
- * NOTE: This function copies from `src` into pages, and should not be used to read from pages.
+ * NOTE: This function copies from `src` into pages.
  */
-void pager_write(int fd, int start_addr, void *src, int size){
+void pager_write(int fd, int start_addr, void *src, int size, int to_pin){
     int bytes_written = 0;
 
     if(size <= 0) { printf("PAGER WRITE ERROR: Writing size <= 0\n"); return; }
@@ -285,16 +300,22 @@ void pager_write(int fd, int start_addr, void *src, int size){
 
         page_t *pg = pager_retrieve(page_num);
         if(pg == NULL){
-            pg = pager_get_available_page();
+            pg = pager_get_empty_page();
             if(pg == NULL){
                 // Evict a LRU page to disk and load the requested page from disk
                 printf("No available pages to load page %d, evict and load\n", page_num);
-                pg = pager_evict_page(fd, page_num, 1);
-
-                // Load the evicted page's content from disk
-                pager_read(fd, page_num * PAGE_SIZE, pg->content, PAGE_SIZE, 1);
+                pg = pager_evict_page(fd, page_num, to_pin);
+            } else{
+                // Initialize new page metadata
+                pg->page_nr = page_num;
+                pg->pinned = to_pin;
+                pg->content = calloc(PAGE_SIZE, 1);
+                pg->new = 1;
             }
-        }   
+            // Load the evicted page's content from disk
+            int bytes_read = storage_read(fd, page_num * PAGE_SIZE, pg->content, PAGE_SIZE);
+            pg->valid_bytes = bytes_read;
+        }
 
         int bytes_left_in_page = PAGE_SIZE - page_offset;
         int bytes_left_to_write = size - bytes_written;
@@ -306,6 +327,7 @@ void pager_write(int fd, int start_addr, void *src, int size){
         pg->dirty = 1;
 
         bytes_written += chunk;
+        pg->last_accessed++;
     }
 }
 
@@ -318,6 +340,7 @@ void pager_flush(int fd, page_t *page) {
     
     if(page->dirty){
         int start_addr = page->page_nr * PAGE_SIZE;
+        printf("Flushing dirty page %d to disk\n", page->page_nr);
         storage_write(fd, start_addr, page->content, page->valid_bytes);
         page->dirty = 0;
     }
@@ -327,6 +350,11 @@ void pager_flush(int fd, page_t *page) {
 page_t *pager_evict_page(int fd, int page_nr, int to_pin){
     // Find a page to evict (must be not pinned)
     page_t *page = find_LRU();
+        if(page == NULL){
+        printf("pager_evict_page: all pages pinned, cannot evict\n");
+        return NULL;
+    }
+    printf("Evicting page %d: last_accessed %d, dirty %d, pinned %d, new %d\n", page->page_nr, page->last_accessed, page->dirty, page->pinned, page->new);
     if(!page->pinned){
         if(page->dirty){
             // Flush dirty page to disk before eviction
@@ -335,7 +363,6 @@ page_t *pager_evict_page(int fd, int page_nr, int to_pin){
             page->dirty = 0;
             page->valid_bytes = 0; // Reset valid bytes since it's being evicted
         }
-        printf("Evicting page %d from memory\n", page->page_nr);
         page->page_nr = page_nr;
         page->pinned = to_pin;
         page->last_accessed = 0; // Reset LRU for new page
@@ -348,14 +375,37 @@ page_t *pager_evict_page(int fd, int page_nr, int to_pin){
 
 
 page_t *find_LRU(){
-    int LRU = 0;
+    int LRU = -1; 
+
     for(int i = 0; i < NUM_PAGES; i++){
-        if(pages[i].last_accessed > pages[LRU].last_accessed 
-                                     && pages[i].pinned == 0){
+        if(pages[i].pinned != 0) continue;  // skip pinned pages entirely
+
+        if(LRU == -1 || pages[i].last_accessed <= pages[LRU].last_accessed)
             LRU = i;
-        } 
+        
     }
+
+    if(LRU == -1){
+        printf("find_LRU: all pages are pinned, cannot evict\n");
+        return NULL;
+    }
+
     return &pages[LRU];
 }
 
+void pager_flush_all(int fd){
+    for(int i = 0; i < NUM_PAGES; i++){
+        if(pages[i].new && pages[i].dirty){
+            pager_flush(fd, &pages[i]);
+        }
+    }
+}
 
+page_t  *pager_get_empty_page(){
+    for(int i = 0; i < NUM_PAGES; i++){
+        if(pages[i].new == 0){
+            return &pages[i];
+        }
+    }
+    return NULL;
+}

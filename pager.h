@@ -28,7 +28,7 @@
  */
 
 #define BLOCK_SIZE 256
-#define NUM_PAGES  22
+#define NUM_PAGES  5
 
 typedef struct page page_t;
 struct page {
@@ -44,13 +44,14 @@ extern page_t pages[NUM_PAGES];
 
 // General pager functions
 page_t *pager_get_available_page();
-void    pager_write(int fd, int start_addr, void *src, int size);
+void    pager_write(int fd, int start_addr, void *src, int size, int to_pin);
 void    pager_read(int fd, int start_addr, void *dest, int size, int to_pin);
 void    pager_flush(int fd, page_t *page);
 void    pager_flush_all(int fd);
 void    pager_pin(page_t *page);
 void    pager_unpin(page_t *page);
 int     pager_insert_row(char *filename, char **col_vals);
+page_t  *pager_get_empty_page();
 
 
     // So if a file has an Int (4 bytes) and PAGE_SIZE 2 and you want to calculate the page(s) that the int is in, you would do:
