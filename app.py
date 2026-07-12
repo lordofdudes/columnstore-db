@@ -110,8 +110,8 @@ def handle_query():
   
 
     
-@app.route('/project', methods=['POST'])
-def project():
+#@app.route('/project', methods=['POST'])
+#def project():
     #selected_cols = request.form.getlist('value')
     #col_nums = ctypes.c_int(len(selected_cols))
     #print("got", selected_cols, "from", request.form)
@@ -121,14 +121,14 @@ def project():
     #lib.project(result, col_nums)
 
 
-    selected_col = request.form['field']
-    selected_val = int(request.form['value'])
+#    selected_col = request.form['field']
+#    selected_val = int(request.form['value'])
     
 
-    c_col = ctypes.c_char_p(selected_col.encode('utf-8'))
-    c_val = ctypes.c_int(selected_val)
-    lib.parse_query(c_col, c_val)
-    return "<p>LMAO</p>"
+#    c_col = ctypes.c_char_p(selected_col.encode('utf-8'))
+#    c_val = ctypes.c_int(selected_val)
+#    lib.parse_query(c_col, c_val)
+#    return "<p>Testing only, you should not be able to see this</p>"
 
 
 if __name__ == '__main__':

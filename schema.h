@@ -49,7 +49,13 @@ void          print_record(record rc);
 
 typedef int (*cmpfunc_t)(int, int);
 
+// Filters on comparison-statement (cmpfunc):
+//     `filtered_col` `op` `amount`: 
+// e.g.    age         <=     18
+// and returns row-wise all values + total amount of column values returned into ptr2 
 char      **filter(int fd, schema_t *sch, field_desc_t *head, char *filtered_col, int amount, int *ptr2, char *op);
+
+//
 char      **project(schema_t *sch, field_desc_t *head, char **vals, int num_vals, char **cols, int num_cols);
 char      **parse_query(char **cols, int num_cols, char *filtered_col, int amount, int *res2, char *op);
 char      **return_all(int *outgoing_row_amount);

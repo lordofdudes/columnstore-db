@@ -122,8 +122,7 @@ int parse_ints(void *chunk, int num_vals, int val, cmpfunc_t cmp_op) {
 /* Project — pick named columns out of a flat row array               */
 /* ------------------------------------------------------------------ */
 
-char **project(schema_t *sch, field_desc_t *head,
-               char **vals, int num_vals, char **cols, int num_cols) {
+char **project(schema_t *sch, field_desc_t *head, char **vals, int num_vals, char **cols, int num_cols) {
     int num_rows = num_vals / sch->field_amount;
     char **arr = malloc(sizeof(char *) * num_cols * num_rows);
 
@@ -146,8 +145,7 @@ char **project(schema_t *sch, field_desc_t *head,
 /* Filter — return all rows where filtered_col op amount is true      */
 /* ------------------------------------------------------------------ */
 
-char **filter(int fd, schema_t *sch, field_desc_t *head,
-              char *filtered_col, int amount, int *ptr2, char *op) {
+char **filter(int fd, schema_t *sch, field_desc_t *head, char *filtered_col, int amount, int *ptr2, char *op) {
     cmpfunc_t cmp_op = determine_op(op);
     if (!cmp_op) { printf("Invalid operator %s\n", op); return NULL; }
 
@@ -192,9 +190,12 @@ char **filter(int fd, schema_t *sch, field_desc_t *head,
 
             char tmp[71];
             if (col->type == 0) {
-                int v; memcpy(&v, buf, sizeof(int));
+                // Copy int over
+                int v; 
+                memcpy(&v, buf, sizeof(int));
                 snprintf(tmp, sizeof(tmp), "%d", v);
             } else {
+                // Copy string over
                 snprintf(tmp, sizeof(tmp), "%s", (char *)buf);
             }
             arr[out_index++] = strdup(tmp);
@@ -212,8 +213,7 @@ char **filter(int fd, schema_t *sch, field_desc_t *head,
 /* parse_query — high-level SELECT col,... WHERE col op val           */
 /* ------------------------------------------------------------------ */
 
-char **parse_query(char **cols, int num_cols,
-                   char *filtered_col, int amount, int *res2, char *op) {
+char **parse_query(char **cols, int num_cols, char *filtered_col, int amount, int *res2, char *op) {
     schema_t sch;
     field_desc_t *head = NULL;
     int num = 0;
@@ -227,8 +227,10 @@ char **parse_query(char **cols, int num_cols,
     lseek(fd, -0x8 - footer_size, SEEK_END);
     reconstruct_schema(fd, &sch, &head);
 
+
     char **vals = filter(fd, &sch, head, filtered_col, amount, &num, op);
     char **res  = project(&sch, head, vals, num, cols, num_cols);
+    // res2 Bad naming, should be total_num_vals because  
     *res2 = num_cols * (num / sch.field_amount);
     return res;
 }
