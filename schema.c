@@ -141,17 +141,22 @@ char **project(schema_t *sch, field_desc_t *head, char **vals, int num_vals, cha
     return arr;
 }
 
-/* ------------------------------------------------------------------ */
-/* Filter — return all rows where filtered_col op amount is true      */
+/* ------------------------------------------------------------------ 
+* Filter — return all rows that pass     filtered_col op amount
 /* ------------------------------------------------------------------ */
 
 char **filter(int fd, schema_t *sch, field_desc_t *head, char *filtered_col, int amount, int *ptr2, char *op) {
+    // Returns function corresponding to operator provided
     cmpfunc_t cmp_op = determine_op(op);
     if (!cmp_op) { printf("Invalid operator %s\n", op); return NULL; }
 
+    // Reads each fields offset in disk from footer  
+    // NOTE: THIS SPECIFIC PART IS BROKEN AND DOES NOT WORK WHEN FILTERING IN OTHER THAN ROW GROUP 1
+    // Explanation: This section only allocates and grabs the first sch->field_amount of offsets.
+    //              For sch->field_amount = 4, record_amount = 32, max_rg_record_amount = 16, there are 2 row groups
+    //              thus footer contains 4 offsets for each row group, meaning row group 2's offsets are not accounted for
     int *col_offsets = malloc(sizeof(int) * sch->field_amount);
     int col_id = -1, idx = 0, final_offset = 0, cur_size = 0;
-
     for (field_desc_t *cur = head; cur; cur = cur->next, idx++) {
         int offset;
         read(fd, &offset, sizeof(int));
@@ -230,7 +235,7 @@ char **parse_query(char **cols, int num_cols, char *filtered_col, int amount, in
 
     char **vals = filter(fd, &sch, head, filtered_col, amount, &num, op);
     char **res  = project(&sch, head, vals, num, cols, num_cols);
-    // res2 Bad naming, should be total_num_vals because  
+    // res2 extremely Bad naming, should be total_num_vals because  
     *res2 = num_cols * (num / sch.field_amount);
     return res;
 }

@@ -415,3 +415,121 @@ page_t  *pager_get_empty_page(){
     }
     return NULL;
 }
+
+
+char **pager_parse_query(char *filename, char **projected_cols, int projected_cols_count, char *filtered_col, int filtered_val, int *total_res_column_vals, char *cmp_op){
+    int fd = find_file(filename);
+    if(!validate_file(fd)) { printf("Wrong file type\n"); return NULL; }
+
+    if(!sch.field_amount){
+        printf("pager_parse_query: schema not allocated\n");
+        pager_read_footer(fd);
+    }
+
+    if(sch.record_amount == 0){ printf("pager_parse_query: No records to query for\n"); return NULL; }
+
+    filter_res_t *query_res = NULL;
+    query_res = pager_filter(fd, cmp_op, filtered_col, filtered_val);
+    pager_project(fd, query_res, projected_cols, projected_cols_count);
+
+    // Not completely done yet
+    return NULL;
+}
+
+
+filter_res_t *pager_filter(int fd, char *cmp_op, char *filtered_col, int filtered_val){
+    cmpfunc_t cmpfunc = determine_op(cmp_op);
+    if(!cmpfunc){ printf("Unsupported operator %s\n", cmp_op); return NULL; }
+
+    // find filtered field metadata
+    int filtered_field_colID = -1, filtered_field_size = 0;
+    for(field_desc_t *cur = head; cur; cur = cur->next){
+        if(strcmp(cur->name, filtered_col) == 0){
+            filtered_field_colID = cur->ColumnID;
+            filtered_field_size  = cur->size;
+            break;
+        }
+    }
+    if(filtered_field_colID == -1){ printf("Field %s not found\n", filtered_col); return NULL; }
+
+    // allocate result
+    filter_res_t *res = malloc(sizeof(filter_res_t));
+    res->indices = malloc(sizeof(int) * sch.record_amount);
+    res->count   = 0;
+
+    int num_rgs = sch.record_amount / sch.max_rg_record_amount;
+    int offset_start = file_size - 0x8 - footer_size + sizeof(schema_t) 
+                     + (sizeof(field_desc_t) - 0x8) * sch.field_amount;
+
+    for(int rg = 0; rg <= num_rgs; rg++){
+        // how many records in this row group
+        int rg_records = (rg == num_rgs)
+            ? sch.record_amount % sch.max_rg_record_amount
+            : sch.max_rg_record_amount;
+        if(rg_records == 0) break;  // record_amount is exact multiple, no partial last rg
+
+        // get this row group's offset for the filtered column
+        // offset_start + (rg * field_amount + colID) * sizeof(int)
+        int cc_offset_addr = offset_start + (rg * sch.field_amount + filtered_field_colID) * sizeof(int);
+        int cc_offset;
+        pager_read(fd, cc_offset_addr, &cc_offset, sizeof(int), 0);
+
+        // read the column chunk
+        int cc_buf[MAX_RG_RECORD_AMOUNT];
+        pager_read(fd, cc_offset, cc_buf, filtered_field_size * rg_records, 0);
+
+        // calculate the global row index of each filtered row
+        for(int i = 0; i < rg_records; i++){
+            if(cmpfunc(cc_buf[i], filtered_val)){
+                res->indices[res->count++] = rg * sch.max_rg_record_amount + i;
+            }
+        }
+    }
+    return res;
+}
+
+
+void pager_project(int fd, filter_res_t *filter_res, char **projected_cols, int num_projected_cols){
+    // Filter_res will be NULL if no filtering option was provided, i.e. do scan of all rows
+    if(filter_res){
+        int offset_start = file_size - 0x8 - footer_size + sizeof(schema_t)
+                        + (sizeof(field_desc_t) - 0x8) * sch.field_amount;
+
+        for(int i = 0; i < filter_res->count; i++){
+            int idx       = filter_res->indices[i];
+            int rg        = idx / sch.max_rg_record_amount;
+            int row_in_rg = idx % sch.max_rg_record_amount;
+
+            for(int c = 0; c < num_projected_cols; c++){
+                // find field descriptor for current projected column name
+                field_desc_t *col = NULL;
+                for(field_desc_t *cur = head; cur; cur = cur->next)
+                    if(strcmp(cur->name, projected_cols[c]) == 0){ col = cur; break; }
+                if(!col){ printf("Column %s not found\n", projected_cols[c]); continue; }
+
+                // Calculate and read offset of offset on disk
+                int cc_offset_addr = offset_start  + (rg * sch.field_amount + col->ColumnID) * sizeof(int);
+                int cc_offset;
+                pager_read(fd, cc_offset_addr, &cc_offset, sizeof(int), 0);
+
+                // Calculate and read each individual value
+                int value_offset = cc_offset + row_in_rg * col->size;
+                char buf[col->size + 1];
+                memset(buf, 0, col->size + 1);
+                pager_read(fd, value_offset, buf, col->size, 0);
+
+                // convert and store/print result
+                if(col->type == 0){
+                    int v; memcpy(&v, buf, sizeof(int));
+                    printf("%s: %d  ", col->name, v);
+                } else {
+                    printf("%s: %s  ", col->name, buf);
+                }
+            }
+            printf("\n");
+        }
+    } else {
+        // Scan all rows but only projected fields
+        printf("No filtering option provided, scanning all projected column chunks\n");
+    }
+}
